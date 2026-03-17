@@ -1,0 +1,23 @@
+{
+  "freetext_display": "D01 Boat Quay / Raffles Place / Marina, D02 Chinatown / Tanjong Pagar",
+  "scraper_type": "Both (Parallel)",
+  "district_codes": [
+    "D01",
+    "D02"
+  ],
+  "bedrooms": [
+    "2",
+    "3"
+  ],
+  "min_price": "1000000",
+  "max_price": "2000000",
+  "property_type": "",
+  "tenure": "",
+  "furnishing": "",
+  "extra_params": "",
+  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/testing_propertyguru_20260317_233051.xlsx",
+  "timeout_sec": "25",
+  "retries": "2",
+  "max_pages": "1",
+  "headless": false
+}
