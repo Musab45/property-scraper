@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import re
 import threading
@@ -11,7 +13,7 @@ import undetected_chromedriver as uc
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
-from scraper import ScraperConfig, STANDARD_CSV_FIELDS
+from scraper import ScraperConfig, STANDARD_CSV_FIELDS, UC_DRIVER_CREATE_LOCK, detect_installed_chrome_major
 
 COMMERCIAL_RESULTS_URL = "https://www.commercialguru.com.sg/property-for-sale"
 
@@ -131,6 +133,7 @@ class CommercialGuruScraper:
     def _create_driver(self) -> uc.Chrome:
         attempts = self.config.retries + 1
         last_error: Exception | None = None
+        preferred_major = self.config.chrome_major or detect_installed_chrome_major()
 
         for attempt in range(1, attempts + 1):
             if self._should_stop():
@@ -147,7 +150,17 @@ class CommercialGuruScraper:
                 if self.config.headless:
                     options.add_argument("--headless=new")
 
-                driver = uc.Chrome(options=options, use_subprocess=False)
+                with UC_DRIVER_CREATE_LOCK:
+                    if preferred_major is not None:
+                        self.log(f"Using Chrome major {preferred_major} for driver compatibility.")
+                        driver = uc.Chrome(
+                            options=options,
+                            use_subprocess=True,
+                            version_main=preferred_major,
+                        )
+                    else:
+                        driver = uc.Chrome(options=options, use_subprocess=True)
+
                 if not self._await_first_window(driver):
                     raise RuntimeError("Chrome started but no active window became available")
 
@@ -157,6 +170,12 @@ class CommercialGuruScraper:
                 return driver
             except Exception as exc:
                 last_error = exc
+                mismatch = re.search(r"Current browser version is\s+(\d+)\.", str(exc))
+                if mismatch:
+                    preferred_major = int(mismatch.group(1))
+                    self.log(
+                        f"Detected local Chrome major {preferred_major} from launch error; retrying with that version."
+                    )
                 if attempt < attempts:
                     self.log(f"Browser launch failed: {exc}. Retrying...")
                     try:

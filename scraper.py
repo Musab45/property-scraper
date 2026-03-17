@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import random
 import re
 import threading
 import time
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 from urllib.parse import urlencode
@@ -24,6 +28,39 @@ STANDARD_CSV_FIELDS = [
     "Tenure",
     "Agent Name",
 ]
+UC_DRIVER_CREATE_LOCK = threading.Lock()
+
+
+def detect_installed_chrome_major() -> Optional[int]:
+    """Return locally installed Chrome major version when detectable."""
+    env_value = os.getenv("CHROME_MAJOR")
+    if env_value:
+        try:
+            return int(env_value)
+        except ValueError:
+            pass
+
+    try:
+        import winreg  # Windows-only
+
+        reg_paths = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Google\Chrome\BLBeacon"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Google\Chrome\BLBeacon"),
+        ]
+        for hive, path in reg_paths:
+            try:
+                with winreg.OpenKey(hive, path) as key:
+                    version, _ = winreg.QueryValueEx(key, "version")
+                match = re.match(r"\s*(\d+)", str(version))
+                if match:
+                    return int(match.group(1))
+            except OSError:
+                continue
+    except Exception:
+        pass
+
+    return None
 
 
 @dataclass
@@ -42,6 +79,7 @@ class ScraperConfig:
     retries: int = 2
     headless: bool = False
     max_pages: Optional[int] = None
+    chrome_major: Optional[int] = None
 
 
 class PropertyGuruScraper:
@@ -170,6 +208,7 @@ class PropertyGuruScraper:
     def _create_driver(self) -> uc.Chrome:
         attempts = self.config.retries + 1
         last_error: Exception | None = None
+        preferred_major = self.config.chrome_major or detect_installed_chrome_major()
 
         for attempt in range(1, attempts + 1):
             if self._should_stop():
@@ -186,7 +225,17 @@ class PropertyGuruScraper:
                 if self.config.headless:
                     options.add_argument("--headless=new")
 
-                driver = uc.Chrome(options=options, use_subprocess=False)
+                with UC_DRIVER_CREATE_LOCK:
+                    if preferred_major is not None:
+                        self.log(f"Using Chrome major {preferred_major} for driver compatibility.")
+                        driver = uc.Chrome(
+                            options=options,
+                            use_subprocess=True,
+                            version_main=preferred_major,
+                        )
+                    else:
+                        driver = uc.Chrome(options=options, use_subprocess=True)
+
                 if not self._await_first_window(driver):
                     raise RuntimeError("Chrome started but no active window became available")
 
@@ -196,6 +245,12 @@ class PropertyGuruScraper:
                 return driver
             except Exception as exc:
                 last_error = exc
+                mismatch = re.search(r"Current browser version is\s+(\d+)\.", str(exc))
+                if mismatch:
+                    preferred_major = int(mismatch.group(1))
+                    self.log(
+                        f"Detected local Chrome major {preferred_major} from launch error; retrying with that version."
+                    )
                 if attempt < attempts:
                     self.log(f"Browser launch failed: {exc}. Retrying...")
                     try:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import queue
@@ -481,9 +483,23 @@ class ScraperUI(tk.Tk):
             stop_requested=lambda: self.stop_event.is_set(),
         )
 
+    def _clean_base_output_name(self, existing_path: str) -> str:
+        existing = os.path.basename(existing_path.strip())
+        base = os.path.splitext(existing)[0] if existing else "scrape_results"
+
+        # Strip repeated trailing segments like _propertyguru_YYYYMMDD_HHMMSS.
+        pattern = re.compile(r"_(?:propertyguru|commercialguru)_\d{8}_\d{6}$", re.IGNORECASE)
+        while True:
+            cleaned = pattern.sub("", base)
+            if cleaned == base:
+                break
+            base = cleaned
+
+        base = base.strip("._-")
+        return base or "scrape_results"
+
     def _prompt_output_targets(self, mode: str) -> dict[str, str] | None:
-        existing = os.path.basename(self.output_var.get().strip())
-        default_name = os.path.splitext(existing)[0] if existing else "scrape_results"
+        default_name = self._clean_base_output_name(self.output_var.get())
 
         raw_name = simpledialog.askstring(
             "Excel Name",

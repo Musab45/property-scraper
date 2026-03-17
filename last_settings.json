@@ -15,7 +15,7 @@
   "tenure": "",
   "furnishing": "",
   "extra_params": "",
-  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/testing_propertyguru_20260317_233051.xlsx",
+  "output_csv": "C:/Users/Affan Ahmed/Desktop/Prop_Scrapper/property-scraper\\testing_propertyguru_20260318_001549.xlsx",
   "timeout_sec": "25",
   "retries": "2",
   "max_pages": "1",
