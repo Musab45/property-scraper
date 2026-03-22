@@ -1,0 +1,35 @@
+Hi,
+
+Thank you for your feedback. I understand your concerns, and I’ve prepared the requested source code and instructions for running the script locally. Here’s what I’ve included:
+
+1. **Python Source Code**: All `.py` files are provided.
+2. **Requirements File**: A `requirements.txt` file with the following libraries:
+   - `beautifulsoup4`
+   - `openpyxl`
+   - `undetected-chromedriver`
+3. **Setup Instructions**:
+   - Extract the folder to your desired location.
+   - Open a terminal and navigate to the folder.
+   - Create a virtual environment:
+     ```
+     python -m venv env
+     ```
+   - Activate the virtual environment:
+     - On Windows:
+       ```
+       env\Scripts\activate
+       ```
+   - Install the required libraries:
+     ```
+     pip install -r requirements.txt
+     ```
+   - Run the script:
+     ```
+     python main.py
+     ```
+
+This setup ensures safety and compatibility, allowing you to run the script directly on your system.
+
+If you still prefer an executable, I can rebuild it without obfuscation or unnecessary dependencies and provide a VirusTotal scan report. Let me know how you’d like to proceed.
+
+Thank you!

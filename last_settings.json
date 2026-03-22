@@ -1,6 +1,11 @@
 {
-  "freetext_display": "D01 Boat Quay / Raffles Place / Marina, D02 Chinatown / Tanjong Pagar",
-  "scraper_type": "Both (Parallel)",
+  "scrape_mode": "File URL Import",
+  "search_url": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
+  "import_file_path": "C:/Users/DELL/Downloads/industrial_links.xlsx",
+  "url_column": "URL",
+  "import_output_folder": "C:\\Users\\DELL\\Documents\\property scrapper\\property-scraper",
+  "freetext_display": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
+  "scraper_type": "Search URL",
   "district_codes": [
     "D01",
     "D02"
@@ -14,8 +19,8 @@
   "property_type": "",
   "tenure": "",
   "furnishing": "",
-  "extra_params": "",
-  "output_csv": "C:/Users/Affan Ahmed/Desktop/Prop_Scrapper/property-scraper\\testing_propertyguru_20260318_001549.xlsx",
+  "extra_params": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
+  "output_csv": "C:/Users/DELL/Downloads/PropertyBot/PropertyBot\\testing_shortlist_20260319_152908_commercialguru_20260322_003553.xlsx",
   "timeout_sec": "25",
   "retries": "2",
   "max_pages": "1",

@@ -80,6 +80,7 @@ class ScraperConfig:
     headless: bool = False
     max_pages: Optional[int] = None
     chrome_major: Optional[int] = None
+    base_url: Optional[str] = None
 
 
 class PropertyGuruScraper:
@@ -203,7 +204,8 @@ class PropertyGuruScraper:
         return urlencode(params, doseq=True)
 
     def _build_page_url(self, page: int) -> str:
-        return f"{BASE_URL}?{self._build_query_string()}&page={page}"
+        base = self.config.base_url or BASE_URL
+        return f"{base}?{self._build_query_string()}&page={page}"
 
     def _create_driver(self) -> uc.Chrome:
         attempts = self.config.retries + 1

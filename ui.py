@@ -9,9 +9,10 @@ import tkinter as tk
 from copy import deepcopy
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 from commercial_scraper import CommercialGuruScraper
+from listing_scraper import DirectListingScraper, read_urls_from_file
 from scraper import PropertyGuruScraper, ScraperConfig
 
 PRESETS_FILE = "presets.json"
@@ -35,6 +36,7 @@ class ScraperUI(tk.Tk):
         self.status_var = tk.StringVar(value="Ready")
         self.active_scrapers: list[object] = []
         self.active_scrapers_lock = threading.Lock()
+        self._last_output_folder: str = ""
 
         self._build_style()
         self._build_layout()
@@ -71,7 +73,7 @@ class ScraperUI(tk.Tk):
         main = ttk.Frame(self, padding=12)
         main.grid(row=0, column=1, sticky="nsew")
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(3, weight=1)
+        main.rowconfigure(4, weight=1)
 
         ttk.Label(sidebar, text="Scraper Controls", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
 
@@ -123,8 +125,23 @@ class ScraperUI(tk.Tk):
             style="HeroSub.TLabel",
         ).grid(row=1, column=0, sticky="w")
 
+        # --- Scrape mode selector ---
+        self.scrape_mode_var = tk.StringVar(value="Filter Search")
+        self.search_url_var = tk.StringVar()
+        self.import_file_var = tk.StringVar()
+        self.url_column_var = tk.StringVar(value="URL")
+        self.import_output_folder_var = tk.StringVar(value=os.getcwd())
+
+        mode_bar = ttk.LabelFrame(main, text="Scrape Mode", style="Panel.TLabelframe")
+        mode_bar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        for _mi, _mode_text in enumerate(["Filter Search", "URL Search", "File URL Import"]):
+            ttk.Radiobutton(
+                mode_bar, text=_mode_text, variable=self.scrape_mode_var,
+                value=_mode_text, command=self._on_mode_change,
+            ).grid(row=0, column=_mi, padx=12, pady=6, sticky="w")
+
         form_frame = ttk.LabelFrame(main, text="Search Filters", style="Panel.TLabelframe")
-        form_frame.grid(row=1, column=0, sticky="ew")
+        form_frame.grid(row=2, column=0, sticky="ew")
         form_frame.columnconfigure(0, weight=1)
         form_frame.columnconfigure(1, weight=1)
 
@@ -253,8 +270,70 @@ class ScraperUI(tk.Tk):
             checkbox.grid(row=(idx // 4) + 1, column=idx % 4, sticky="w")
             self.form_controls.append(checkbox)
 
+        # Save filter panel reference for show/hide on mode switch
+        self._filter_panel = form_frame
+
+        # -- URL Search panel (row=2, hidden by default) --
+        url_panel = ttk.LabelFrame(main, text="URL Search", style="Panel.TLabelframe")
+        url_panel.grid(row=2, column=0, sticky="ew")
+        url_panel.columnconfigure(0, weight=1)
+        url_panel.grid_remove()
+        self._url_panel = url_panel
+
+        ttk.Label(
+            url_panel,
+            text="Paste a full PropertyGuru or CommercialGuru search results URL:",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        url_search_entry = ttk.Entry(url_panel, textvariable=self.search_url_var)
+        url_search_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        url_clear_btn = ttk.Button(url_panel, text="Clear", command=lambda: self.search_url_var.set(""))
+        url_clear_btn.grid(row=1, column=1)
+        self.form_controls.extend([url_search_entry, url_clear_btn])
+
+        ttk.Label(url_panel, text="Output Excel:").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        url_out_row = ttk.Frame(url_panel)
+        url_out_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        url_out_row.columnconfigure(0, weight=1)
+        url_out_entry = ttk.Entry(url_out_row, textvariable=self.output_var)
+        url_out_entry.grid(row=0, column=0, sticky="ew")
+        url_out_browse_btn = ttk.Button(url_out_row, text="Browse", command=self.pick_output_file)
+        url_out_browse_btn.grid(row=0, column=1, padx=(6, 0))
+        self.form_controls.extend([url_out_entry, url_out_browse_btn])
+
+        # -- File URL Import panel (row=2, hidden by default) --
+        file_panel = ttk.LabelFrame(main, text="File URL Import", style="Panel.TLabelframe")
+        file_panel.grid(row=2, column=0, sticky="ew")
+        file_panel.columnconfigure(1, weight=1)
+        file_panel.grid_remove()
+        self._file_panel = file_panel
+
+        ttk.Label(
+            file_panel,
+            text="Select an Excel (.xlsx) or CSV file with listing URLs — one URL per row:",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        file_path_entry = ttk.Entry(file_panel, textvariable=self.import_file_var)
+        file_path_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        file_browse_btn = ttk.Button(file_panel, text="Browse", command=self._pick_import_file)
+        file_browse_btn.grid(row=1, column=1, sticky="w", padx=(0, 12))
+        self.form_controls.extend([file_path_entry, file_browse_btn])
+
+        ttk.Label(file_panel, text="URL column name:").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        url_col_entry = ttk.Entry(file_panel, textvariable=self.url_column_var, width=20)
+        url_col_entry.grid(row=3, column=0, sticky="w", pady=(0, 4))
+        self.form_controls.append(url_col_entry)
+
+        ttk.Label(file_panel, text="Output folder for CSVs:").grid(row=2, column=1, sticky="w", pady=(8, 0))
+        file_out_row = ttk.Frame(file_panel)
+        file_out_row.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(0, 4))
+        file_out_row.columnconfigure(0, weight=1)
+        file_out_entry = ttk.Entry(file_out_row, textvariable=self.import_output_folder_var)
+        file_out_entry.grid(row=0, column=0, sticky="ew")
+        file_out_browse_btn = ttk.Button(file_out_row, text="Browse", command=self._pick_import_output_folder)
+        file_out_browse_btn.grid(row=0, column=1, padx=(6, 0))
+        self.form_controls.extend([file_out_entry, file_out_browse_btn])
+
         advanced = ttk.LabelFrame(main, text="Advanced Settings", style="Panel.TLabelframe")
-        advanced.grid(row=2, column=0, sticky="ew", pady=(10, 10))
+        advanced.grid(row=3, column=0, sticky="ew", pady=(10, 10))
 
         self.timeout_var = tk.StringVar(value="25")
         self.retries_var = tk.StringVar(value="2")
@@ -275,7 +354,7 @@ class ScraperUI(tk.Tk):
         self.form_controls.extend([timeout_entry, retries_entry, max_pages_entry, headless_check])
 
         progress_frame = ttk.LabelFrame(main, text="Progress", style="Panel.TLabelframe")
-        progress_frame.grid(row=3, column=0, sticky="nsew")
+        progress_frame.grid(row=4, column=0, sticky="nsew")
         progress_frame.columnconfigure(0, weight=1)
         progress_frame.rowconfigure(3, weight=1)
 
@@ -388,6 +467,31 @@ class ScraperUI(tk.Tk):
         return parsed
 
     def _validate_form(self) -> tuple[bool, str]:
+        mode = self.scrape_mode_var.get()
+
+        if mode == "URL Search":
+            url = self.search_url_var.get().strip()
+            if not url:
+                return False, "Please paste a search URL."
+            if not url.startswith("http"):
+                return False, "URL must start with http:// or https://"
+            if not self.output_var.get().strip():
+                return False, "Output Excel path is required."
+            return True, ""
+
+        if mode == "File URL Import":
+            fp = self.import_file_var.get().strip()
+            if not fp:
+                return False, "Please select an Excel or CSV file."
+            if not os.path.isfile(fp):
+                return False, f"File not found: {fp}"
+            if not self.url_column_var.get().strip():
+                return False, "URL column name cannot be empty."
+            if not self.import_output_folder_var.get().strip():
+                return False, "Please select an output folder."
+            return True, ""
+
+        # Filter Search mode
         if not self.freetext_var.get().strip():
             return False, "Free Text Display is required."
 
@@ -444,6 +548,87 @@ class ScraperUI(tk.Tk):
             return False, "Extra Params must use key=value&key=value format."
 
         return True, ""
+
+    def _build_config_from_url(self, raw_url: str, output_path: str) -> tuple[ScraperConfig, str]:
+        """Parse a full search-results URL into a ScraperConfig + auto-detected site name."""
+        parsed = urlparse(raw_url.strip())
+        base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+        params = parse_qs(parsed.query, keep_blank_values=True)
+
+        # Auto-detect site from hostname
+        host = parsed.netloc.lower()
+        if "commercialguru" in host:
+            site = "Commercial Guru"
+        else:
+            site = "Property Guru"
+
+        # Keys that map to explicit ScraperConfig fields (case-insensitive match)
+        KNOWN_LOWER = {
+            "_freetextdisplay", "districtcode", "bedrooms",
+            "minprice", "maxprice", "propertytypegroup",
+            "tenure", "furnishing", "page",
+        }
+
+        def _get(key: str) -> list[str]:
+            """Case-insensitive param lookup, returning list of values."""
+            for k, v in params.items():
+                if k.lower() == key.lower():
+                    return v
+            return []
+
+        freetext = (_get("_freetextDisplay") or [""])[0]
+        district_codes = _get("districtCode")
+        bedrooms = _get("bedrooms")
+
+        try:
+            min_price = int((_get("minPrice") or ["0"])[0])
+        except (ValueError, IndexError):
+            min_price = 0
+
+        try:
+            max_price = int((_get("maxPrice") or ["99999999"])[0])
+        except (ValueError, IndexError):
+            max_price = 99999999
+
+        property_type = (_get("propertyTypeGroup") or [""])[0]
+        tenure = (_get("tenure") or [""])[0]
+        furnishing = (_get("furnishing") or [""])[0]
+
+        # Everything not mapped and not 'page' goes into extra_params (preserve original casing)
+        extra_params: dict[str, list[str]] = {}
+        for key, values in params.items():
+            if key.lower() not in KNOWN_LOWER:
+                extra_params[key] = values
+
+        try:
+            timeout_sec = int(self.timeout_var.get().strip())
+        except ValueError:
+            timeout_sec = 25
+        try:
+            retries = int(self.retries_var.get().strip())
+        except ValueError:
+            retries = 2
+        max_pages_raw = self.max_pages_var.get().strip()
+        max_pages = int(max_pages_raw) if max_pages_raw else None
+
+        config = ScraperConfig(
+            freetext_display=freetext,
+            district_codes=list(district_codes),
+            bedrooms=list(bedrooms),
+            min_price=min_price,
+            max_price=max_price,
+            output_csv=output_path,
+            property_type=property_type,
+            tenure=tenure,
+            furnishing=furnishing,
+            extra_params=extra_params,
+            timeout_sec=timeout_sec,
+            retries=retries,
+            headless=self.headless_var.get(),
+            max_pages=max_pages,
+            base_url=base_url,
+        )
+        return config, site
 
     def _build_config(self) -> ScraperConfig:
         max_pages = self.max_pages_var.get().strip()
@@ -564,21 +749,130 @@ class ScraperUI(tk.Tk):
             messagebox.showwarning("Running", "Scraper is already running.")
             return
 
-        mode = self.scraper_type_var.get()
+        scrape_mode = self.scrape_mode_var.get()
+
+        if scrape_mode == "File URL Import":
+            import_file = self.import_file_var.get().strip()
+            url_col = self.url_column_var.get().strip()
+            out_folder = self.import_output_folder_var.get().strip()
+
+            try:
+                urls = read_urls_from_file(import_file, url_col)
+            except Exception as exc:
+                messagebox.showerror("File Read Error", str(exc))
+                return
+
+            if not urls:
+                messagebox.showerror(
+                    "No URLs Found",
+                    f"No rows starting with 'http' were found in column '{url_col}'.\n"
+                    "Check the column name and file contents.",
+                )
+                return
+
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_name = os.path.splitext(os.path.basename(import_file))[0]
+            safe_base = re.sub(r"[^A-Za-z0-9._-]+", "_", base_name).strip("._-") or "scraped"
+            output_excel = os.path.join(out_folder, f"{safe_base}_listings_{ts}.xlsx")
+
+            try:
+                timeout_sec = int(self.timeout_var.get().strip())
+            except ValueError:
+                timeout_sec = 25
+            try:
+                retries = int(self.retries_var.get().strip())
+            except ValueError:
+                retries = 2
+
+            driver_config = ScraperConfig(
+                freetext_display="",
+                district_codes=[],
+                bedrooms=[],
+                min_price=0,
+                max_price=0,
+                output_csv=output_excel,
+                timeout_sec=timeout_sec,
+                retries=retries,
+                headless=self.headless_var.get(),
+            )
+
+            self.stop_event.clear()
+            self.clear_progress()
+            self._last_output_folder = out_folder
+            self._set_running_state(True)
+            self._append_log(
+                f"Starting File URL Import — {len(urls)} URL(s) from: {import_file}"
+            )
+            self._append_log(f"Output Excel: {output_excel}")
+            self._save_last_settings()
+
+            def _file_worker() -> None:
+                try:
+                    scraper = DirectListingScraper(
+                        urls=urls,
+                        config=driver_config,
+                        log_callback=lambda msg: self.event_queue.put(("log", msg)),
+                        progress_callback=lambda d: self.event_queue.put(("progress", d)),
+                        stop_requested=lambda: self.stop_event.is_set(),
+                    )
+                    with self.active_scrapers_lock:
+                        self.active_scrapers = [scraper]
+                    result = scraper.run()
+                    result["output_csv"] = output_excel
+                    result["mode"] = "file_import"
+                    result["cancelled"] = self.stop_event.is_set()
+                    self.event_queue.put(("done", result))
+                except Exception as exc:
+                    self.event_queue.put(("error", str(exc)))
+                finally:
+                    with self.active_scrapers_lock:
+                        self.active_scrapers = []
+
+            self.worker_thread = threading.Thread(target=_file_worker, daemon=True)
+            self.worker_thread.start()
+            return
+
+        # --- Build config and determine target scraper ---
+        if scrape_mode == "URL Search":
+            try:
+                config, mode = self._build_config_from_url(
+                    self.search_url_var.get().strip(), ""
+                )
+            except Exception as exc:
+                messagebox.showerror("URL Parse Error", str(exc))
+                return
+            self._append_log(f"Parsed URL → auto-detected site: {mode}")
+            if config.freetext_display:
+                self._append_log(f"Free text: {config.freetext_display}")
+            if config.district_codes:
+                self._append_log(f"Districts: {', '.join(config.district_codes)}")
+            if config.extra_params:
+                extras = ", ".join(f"{k}={v}" for k, vs in config.extra_params.items() for v in vs)
+                self._append_log(f"Extra params: {extras}")
+        else:
+            mode = self.scraper_type_var.get()
+            config = self._build_config()
+
         output_targets = self._prompt_output_targets(mode)
         if not output_targets:
             self._append_log("Run canceled: output name/folder was not provided.")
             return
 
+        # For URL Search the output path isn't set until after the file dialog
+        if scrape_mode == "URL Search":
+            first_path = next(iter(output_targets.values()))
+            config = self._clone_config_with_output(config, first_path)
+
         self.stop_event.clear()
         self.clear_progress()
+        self._last_output_folder = (
+            os.path.dirname(next(iter(output_targets.values()))) or os.getcwd()
+        )
         self._set_running_state(True)
-        self._append_log(f"Starting scrape ({mode})...")
+        self._append_log(f"Starting scrape ({mode} • {scrape_mode})...")
         for tag, path in output_targets.items():
             self._append_log(f"[{tag}] Excel output: {path}")
         self._save_last_settings()
-
-        config = self._build_config()
 
         def worker() -> None:
             try:
@@ -710,6 +1004,14 @@ class ScraperUI(tk.Tk):
                                 f"Errors {result.get('errors', 0)}, Elapsed {result.get('elapsed', 0)}s, "
                                 f"Excel {result.get('output_csv', '')}"
                             )
+                    elif payload.get("mode") == "file_import":
+                        self._append_log(
+                            f"File import complete. "
+                            f"URLs scraped: {payload.get('processed', 0)}/{payload.get('total_links', 0)}, "
+                            f"Errors: {payload.get('errors', 0)}, "
+                            f"Elapsed: {payload.get('elapsed', 0)}s"
+                        )
+                        self._append_log(f"Excel: {payload.get('output_csv', '')}")
                     else:
                         self._append_log(
                             "Completed. "
@@ -723,7 +1025,15 @@ class ScraperUI(tk.Tk):
                         self._append_log("Run stopped by user.")
                     else:
                         self.status_var.set("Completed")
-                        messagebox.showinfo("Done", "Scraping finished.")
+                        if payload.get("mode") == "file_import":
+                            msg = (
+                                f"{payload.get('processed', 0)}/{payload.get('total_links', 0)} "
+                                f"URL(s) scraped, {payload.get('errors', 0)} error(s).\n"
+                                f"Excel: {payload.get('output_csv', '')}"
+                            )
+                            messagebox.showinfo("Import Complete", msg)
+                        else:
+                            messagebox.showinfo("Done", "Scraping finished.")
                 elif kind == "error":
                     self._set_running_state(False)
                     self._append_log(f"Error: {payload}")
@@ -753,17 +1063,29 @@ class ScraperUI(tk.Tk):
         self.progress_bar.configure(value=min(processed, max_val))
 
     def open_output_folder(self) -> None:
-        path = self.output_var.get().strip()
-        if not path:
-            return
-        folder = os.path.dirname(path) or os.getcwd()
+        folder = (
+            self._last_output_folder
+            or os.path.dirname(self.output_var.get().strip())
+            or os.getcwd()
+        )
+        if not os.path.isdir(folder):
+            folder = os.getcwd()
         try:
-            os.system(f'open "{folder}"')
+            os.startfile(folder)  # Windows
         except Exception:
-            pass
+            try:
+                import subprocess
+                subprocess.Popen(["explorer", folder])
+            except Exception:
+                pass
 
     def _get_form_data(self) -> dict:
         return {
+            "scrape_mode": self.scrape_mode_var.get(),
+            "search_url": self.search_url_var.get(),
+            "import_file_path": self.import_file_var.get(),
+            "url_column": self.url_column_var.get(),
+            "import_output_folder": self.import_output_folder_var.get(),
             "freetext_display": self.freetext_var.get(),
             "scraper_type": self.scraper_type_var.get(),
             "district_codes": self._collect_selected_districts(),
@@ -782,6 +1104,11 @@ class ScraperUI(tk.Tk):
         }
 
     def _apply_form_data(self, data: dict) -> None:
+        self.scrape_mode_var.set(data.get("scrape_mode", "Filter Search"))
+        self.search_url_var.set(data.get("search_url", ""))
+        self.import_file_var.set(data.get("import_file_path", ""))
+        self.url_column_var.set(data.get("url_column", "URL"))
+        self.import_output_folder_var.set(data.get("import_output_folder", os.getcwd()))
         self.scraper_type_var.set(data.get("scraper_type", "Property Guru"))
         self.freetext_var.set(data.get("freetext_display", ""))
         self.min_price_var.set(str(data.get("min_price", "1000000")))
@@ -803,6 +1130,7 @@ class ScraperUI(tk.Tk):
         selected_beds = set(str(x) for x in data.get("bedrooms", []))
         for bed, var in self.bed_vars.items():
             var.set(bed in selected_beds)
+        self._on_mode_change()
 
     def save_preset(self) -> None:
         name = self.preset_var.get().strip() or simpledialog.askstring("Preset", "Preset name")
@@ -864,6 +1192,43 @@ class ScraperUI(tk.Tk):
             self.status_var.set("Loaded last settings")
         except Exception:
             pass
+
+
+    def _on_mode_change(self) -> None:
+        mode = self.scrape_mode_var.get()
+        if mode == "Filter Search":
+            self._filter_panel.grid()
+            self._url_panel.grid_remove()
+            self._file_panel.grid_remove()
+        elif mode == "URL Search":
+            self._filter_panel.grid_remove()
+            self._url_panel.grid()
+            self._file_panel.grid_remove()
+        elif mode == "File URL Import":
+            self._filter_panel.grid_remove()
+            self._url_panel.grid_remove()
+            self._file_panel.grid()
+
+    def _pick_import_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select Excel or CSV file with listing URLs",
+            filetypes=[
+                ("Excel files", "*.xlsx"),
+                ("CSV files", "*.csv"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self.import_file_var.set(path)
+
+    def _pick_import_output_folder(self) -> None:
+        folder = filedialog.askdirectory(
+            title="Select output folder for CSVs",
+            initialdir=self.import_output_folder_var.get() or os.getcwd(),
+            mustexist=True,
+        )
+        if folder:
+            self.import_output_folder_var.set(folder)
 
 
 def run_app() -> None:

@@ -128,7 +128,8 @@ class CommercialGuruScraper:
         return urlencode(params, doseq=True)
 
     def _build_page_url(self, page: int) -> str:
-        return f"{COMMERCIAL_RESULTS_URL}?{self._build_query_string()}&page={page}"
+        base = self.config.base_url or COMMERCIAL_RESULTS_URL
+        return f"{base}?{self._build_query_string()}&page={page}"
 
     def _create_driver(self) -> uc.Chrome:
         attempts = self.config.retries + 1
