@@ -17,6 +17,9 @@ from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 
+from contact_phone_extractor import reveal_and_extract_agent_phone
+from login_manager import login_propertyguru
+
 BASE_URL = "https://www.propertyguru.com.sg/property-for-sale"
 STANDARD_CSV_FIELDS = [
     "URL",
@@ -27,8 +30,31 @@ STANDARD_CSV_FIELDS = [
     "Land Size",
     "Tenure",
     "Agent Name",
+    "Agent Phone Number",
 ]
 UC_DRIVER_CREATE_LOCK = threading.Lock()
+
+
+def extract_psf_from_soup(soup: BeautifulSoup) -> Optional[str]:
+    """Extract PSF value using a single shared strategy across all scrape modes."""
+    psf_amenity = soup.find("div", attrs={"da-id": "psf-amenity"})
+    if psf_amenity:
+        for elem in psf_amenity.find_all("p"):
+            text = elem.get_text(strip=True)
+            if "S$" in text or "psf" in text.lower() or "/sqft" in text.lower():
+                return text
+
+    for elem in soup.select('[da-id="price-psf"], .price-psf, .psf, [data-automation-id="price-psf"]'):
+        text = elem.get_text(strip=True)
+        if text and ("S$" in text or "psf" in text.lower() or "/sqft" in text.lower()):
+            return text
+
+    page_text = soup.get_text(" ", strip=True)
+    match = re.search(r"S\$\s*[\d,.]+(?:\s*(?:psf|/\s*sq\s*ft|/\s*sqft))", page_text, re.IGNORECASE)
+    if match:
+        return match.group(0).strip()
+
+    return None
 
 
 def detect_installed_chrome_major() -> Optional[int]:
@@ -394,7 +420,13 @@ class PropertyGuruScraper:
             
         return list(dict.fromkeys(all_links))
 
-    def _scrape_listing(self, html: str, url: str, query_districts: str) -> dict:
+    def _scrape_listing(self, driver: uc.Chrome, url: str, query_districts: str) -> dict:
+        agent_phone = reveal_and_extract_agent_phone(
+            driver=driver,
+            timeout_sec=self.config.timeout_sec,
+            stop_requested=self._should_stop,
+        )
+        html = driver.page_source
         soup = BeautifulSoup(html, "html.parser")
 
         asking_price = None
@@ -402,14 +434,7 @@ class PropertyGuruScraper:
         if price_elem:
             asking_price = price_elem.get_text(strip=True)
 
-        psf = None
-        psf_amenity = soup.find("div", attrs={"da-id": "psf-amenity"})
-        if psf_amenity:
-            for elem in psf_amenity.find_all("p", class_="amenity-text"):
-                text = elem.get_text(strip=True)
-                if "S$" in text:
-                    psf = text
-                    break
+        psf = extract_psf_from_soup(soup)
 
         land_size = None
         area_wrapper = soup.find("div", attrs={"da-id": "area-amenity"})
@@ -448,6 +473,7 @@ class PropertyGuruScraper:
             "Land Size": land_size,
             "Tenure": tenure,
             "Agent Name": agent_name,
+            "Agent Phone Number": agent_phone,
         }
 
     def run(self) -> dict:
@@ -455,6 +481,13 @@ class PropertyGuruScraper:
         driver = self._create_driver()
 
         try:
+            login_propertyguru(
+                driver=driver,
+                timeout_sec=self.config.timeout_sec,
+                log_callback=self.log,
+                stop_requested=self._should_stop,
+            )
+
             total_pages = self._get_total_pages(driver)
             self.log(f"Detected total pages: {total_pages}")
 
@@ -496,7 +529,7 @@ class PropertyGuruScraper:
                     )
                     continue
 
-                row = self._scrape_listing(driver.page_source, link, query_districts)
+                row = self._scrape_listing(driver, link, query_districts)
                 sheet.append([row.get(field) for field in fieldnames])
 
                 processed += 1

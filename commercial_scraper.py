@@ -13,7 +13,16 @@ import undetected_chromedriver as uc
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
-from scraper import ScraperConfig, STANDARD_CSV_FIELDS, UC_DRIVER_CREATE_LOCK, detect_installed_chrome_major
+from contact_phone_extractor import reveal_and_extract_agent_phone
+from login_manager import login_commercialguru
+
+from scraper import (
+    ScraperConfig,
+    STANDARD_CSV_FIELDS,
+    UC_DRIVER_CREATE_LOCK,
+    detect_installed_chrome_major,
+    extract_psf_from_soup,
+)
 
 COMMERCIAL_RESULTS_URL = "https://www.commercialguru.com.sg/property-for-sale"
 
@@ -319,7 +328,13 @@ class CommercialGuruScraper:
 
         return list(dict.fromkeys(links))
 
-    def _extract_listing_row(self, html: str, url: str, query_districts: str) -> dict:
+    def _extract_listing_row(self, driver: uc.Chrome, url: str, query_districts: str) -> dict:
+        agent_phone = reveal_and_extract_agent_phone(
+            driver=driver,
+            timeout_sec=self.config.timeout_sec,
+            stop_requested=self._should_stop,
+        )
+        html = driver.page_source
         soup = BeautifulSoup(html, "html.parser")
 
         asking_price = None
@@ -329,14 +344,7 @@ class CommercialGuruScraper:
                 asking_price = elem.get_text(strip=True)
                 break
 
-        psf = None
-        psf_amenity = soup.find("div", attrs={"da-id": "psf-amenity"})
-        if psf_amenity:
-            for elem in psf_amenity.find_all("p"):
-                text = elem.get_text(strip=True)
-                if "S$" in text:
-                    psf = text
-                    break
+        psf = extract_psf_from_soup(soup)
 
         land_size = None
         area_wrapper = soup.find("div", attrs={"da-id": "area-amenity"})
@@ -379,6 +387,7 @@ class CommercialGuruScraper:
             "Land Size": land_size,
             "Tenure": tenure,
             "Agent Name": agent_name,
+            "Agent Phone Number": agent_phone,
         }
 
     def run(self) -> dict:
@@ -386,6 +395,13 @@ class CommercialGuruScraper:
         driver = self._create_driver()
 
         try:
+            login_commercialguru(
+                driver=driver,
+                timeout_sec=self.config.timeout_sec,
+                log_callback=self.log,
+                stop_requested=self._should_stop,
+            )
+
             total_pages = self._get_total_pages(driver)
             self.log(f"Detected total pages: {total_pages}")
 
@@ -425,7 +441,7 @@ class CommercialGuruScraper:
                     )
                     continue
 
-                row = self._extract_listing_row(driver.page_source, link, query_districts)
+                row = self._extract_listing_row(driver, link, query_districts)
                 sheet.append([row.get(field) for field in STANDARD_CSV_FIELDS])
 
                 processed += 1

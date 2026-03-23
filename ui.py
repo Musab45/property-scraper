@@ -290,9 +290,14 @@ class ScraperUI(tk.Tk):
         url_clear_btn.grid(row=1, column=1)
         self.form_controls.extend([url_search_entry, url_clear_btn])
 
-        ttk.Label(url_panel, text="Output Excel:").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(
+            url_panel,
+            text="Site is auto-detected from URL host in URL Search mode.",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 2))
+
+        ttk.Label(url_panel, text="Output Excel:").grid(row=3, column=0, sticky="w", pady=(8, 0))
         url_out_row = ttk.Frame(url_panel)
-        url_out_row.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        url_out_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 4))
         url_out_row.columnconfigure(0, weight=1)
         url_out_entry = ttk.Entry(url_out_row, textvariable=self.output_var)
         url_out_entry.grid(row=0, column=0, sticky="ew")
@@ -322,7 +327,7 @@ class ScraperUI(tk.Tk):
         url_col_entry.grid(row=3, column=0, sticky="w", pady=(0, 4))
         self.form_controls.append(url_col_entry)
 
-        ttk.Label(file_panel, text="Output folder for CSVs:").grid(row=2, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(file_panel, text="Output folder for Excel:").grid(row=2, column=1, sticky="w", pady=(8, 0))
         file_out_row = ttk.Frame(file_panel)
         file_out_row.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(0, 4))
         file_out_row.columnconfigure(0, weight=1)
@@ -559,8 +564,12 @@ class ScraperUI(tk.Tk):
         host = parsed.netloc.lower()
         if "commercialguru" in host:
             site = "Commercial Guru"
-        else:
+        elif "propertyguru" in host:
             site = "Property Guru"
+        else:
+            raise ValueError(
+                "Unsupported URL host. Please use a PropertyGuru or CommercialGuru search URL."
+            )
 
         # Keys that map to explicit ScraperConfig fields (case-insensitive match)
         KNOWN_LOWER = {
@@ -738,6 +747,8 @@ class ScraperUI(tk.Tk):
                 pass
         self.preset_combo.configure(state="disabled" if running else "normal")
         self.status_var.set("Running scrape..." if running else "Ready")
+        if not running:
+            self._on_mode_change()
 
     def start_scrape(self) -> None:
         ok, message = self._validate_form()
@@ -842,6 +853,7 @@ class ScraperUI(tk.Tk):
                 messagebox.showerror("URL Parse Error", str(exc))
                 return
             self._append_log(f"Parsed URL → auto-detected site: {mode}")
+            self._append_log("URL Search ignores the Site selector and uses URL hostname.")
             if config.freetext_display:
                 self._append_log(f"Free text: {config.freetext_display}")
             if config.district_codes:
@@ -1200,14 +1212,17 @@ class ScraperUI(tk.Tk):
             self._filter_panel.grid()
             self._url_panel.grid_remove()
             self._file_panel.grid_remove()
+            self.scraper_type_combo.configure(state="readonly")
         elif mode == "URL Search":
             self._filter_panel.grid_remove()
             self._url_panel.grid()
             self._file_panel.grid_remove()
+            self.scraper_type_combo.configure(state="disabled")
         elif mode == "File URL Import":
             self._filter_panel.grid_remove()
             self._url_panel.grid_remove()
             self._file_panel.grid()
+            self.scraper_type_combo.configure(state="disabled")
 
     def _pick_import_file(self) -> None:
         path = filedialog.askopenfilename(
@@ -1223,7 +1238,7 @@ class ScraperUI(tk.Tk):
 
     def _pick_import_output_folder(self) -> None:
         folder = filedialog.askdirectory(
-            title="Select output folder for CSVs",
+            title="Select output folder for Excel",
             initialdir=self.import_output_folder_var.get() or os.getcwd(),
             mustexist=True,
         )

@@ -5,6 +5,7 @@ import random
 import re
 import threading
 import time
+from urllib.parse import urlparse
 from typing import Callable, Optional
 
 from bs4 import BeautifulSoup
@@ -13,10 +14,18 @@ import undetected_chromedriver as uc
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
-from scraper import ScraperConfig, UC_DRIVER_CREATE_LOCK, detect_installed_chrome_major
+from contact_phone_extractor import reveal_and_extract_agent_phone
+from login_manager import login_commercialguru, login_propertyguru
+
+from scraper import (
+    ScraperConfig,
+    UC_DRIVER_CREATE_LOCK,
+    detect_installed_chrome_major,
+    extract_psf_from_soup,
+)
 
 DETAIL_FIELDS = [
-    "Source URL",
+    "URL",
     "Title",
     "Price",
     "Address",
@@ -363,18 +372,7 @@ class DirectListingScraper:
 
     @staticmethod
     def _extract_psf(soup: BeautifulSoup) -> Optional[str]:
-        wrapper = soup.find("div", attrs={"da-id": "psf-amenity"})
-        if wrapper:
-            for p in wrapper.find_all("p"):
-                text = p.get_text(strip=True)
-                if "S$" in text:
-                    return text
-        m = re.search(
-            r"S\$[\d,]+(?:\.\d+)?\s*(?:psf|/ sqft)",
-            soup.get_text(separator=" "),
-            re.IGNORECASE,
-        )
-        return m.group(0).strip() if m else None
+        return extract_psf_from_soup(soup)
 
     @staticmethod
     def _extract_phone(soup: BeautifulSoup) -> Optional[str]:
@@ -490,7 +488,7 @@ class DirectListingScraper:
         email = self._extract_email(soup)
 
         return {
-            "Source URL": url,
+            "URL": url,
             "Title": title,
             "Price": price,
             "Address": address,
@@ -522,6 +520,23 @@ class DirectListingScraper:
 
         processed = 0
         try:
+            first_url = self.urls[0] if self.urls else ""
+            host = urlparse(first_url).netloc.lower()
+            if "commercialguru" in host:
+                login_commercialguru(
+                    driver=driver,
+                    timeout_sec=self.config.timeout_sec,
+                    log_callback=self.log,
+                    stop_requested=self._should_stop,
+                )
+            else:
+                login_propertyguru(
+                    driver=driver,
+                    timeout_sec=self.config.timeout_sec,
+                    log_callback=self.log,
+                    stop_requested=self._should_stop,
+                )
+
             for i, url in enumerate(self.urls, start=1):
                 if self._should_stop():
                     self.log("Stop requested. Finishing current listing.")
@@ -533,10 +548,15 @@ class DirectListingScraper:
                 if not loaded:
                     self.error_count += 1
                     row_data: dict = {f: None for f in DETAIL_FIELDS}
-                    row_data["Source URL"] = url
+                    row_data["URL"] = url
                     self.log(f"[{i}/{total}] FAILED to load: {url}")
                 else:
                     row_data = self._parse_listing_page(driver.page_source, url)
+                    row_data["Phone"] = reveal_and_extract_agent_phone(
+                        driver=driver,
+                        timeout_sec=self.config.timeout_sec,
+                        stop_requested=self._should_stop,
+                    ) or row_data.get("Phone")
                     label = row_data.get("Title") or row_data.get("Price") or url
                     self.log(f"[{i}/{total}] OK — {label}")
 
