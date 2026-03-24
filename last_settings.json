@@ -1,6 +1,6 @@
 {
-  "scrape_mode": "Filter Search",
-  "search_url": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
+  "scrape_mode": "URL Search",
+  "search_url": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-sale?listingType=sale&page=1&districtCode=D22&isCommercial=true&_freetextDisplay=D22%20Boon%20Lay%20%2F%20Jurong%20%2F%20Tuas&propertyTypeGroup=I&propertyTypeCode=FAC&maxPrice=3000000&minSize=10000",
   "import_file_path": "C:/Users/DELL/Downloads/industrial_links.xlsx",
   "url_column": "URL",
   "import_output_folder": "C:\\Users\\DELL\\Documents\\property scrapper\\property-scraper",
@@ -20,7 +20,7 @@
   "tenure": "",
   "furnishing": "",
   "extra_params": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
-  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/login_propertyguru_20260323_203832.xlsx",
+  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/missing_commercialguru_20260324_190258.xlsx",
   "timeout_sec": "25",
   "retries": "2",
   "max_pages": "1",
