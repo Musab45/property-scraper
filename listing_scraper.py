@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import csv
 import random
 import re
 import threading
@@ -19,26 +20,13 @@ from login_manager import login_commercialguru, login_propertyguru
 
 from scraper import (
     ScraperConfig,
+    STANDARD_CSV_FIELDS,
     UC_DRIVER_CREATE_LOCK,
     detect_installed_chrome_major,
     extract_psf_from_soup,
 )
 
-DETAIL_FIELDS = [
-    "URL",
-    "Title",
-    "Price",
-    "Address",
-    "Property Type",
-    "Size (sqft)",
-    "PSF",
-    "Description",
-    "Tenure",
-    "Agent Name",
-    "Agent Company",
-    "Phone",
-    "Email",
-]
+DETAIL_FIELDS = STANDARD_CSV_FIELDS
 
 
 # ── File reading helpers ──────────────────────────────────────────────────────
@@ -187,18 +175,42 @@ class DirectListingScraper:
     def _polite_wait(self, min_s: float = 2.0, max_s: float = 4.0) -> None:
         self._sleep_with_stop(random.uniform(min_s, max_s))
 
+    @staticmethod
+    def _format_launch_error(exc: Exception) -> str:
+        text = str(exc).strip()
+        if "Stacktrace:" in text:
+            text = text.split("Stacktrace:", 1)[0].strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return exc.__class__.__name__
+        return " | ".join(lines[:2])
+
     # ── Driver management ─────────────────────────────────────────────────────
 
     def _await_first_window(self, driver: uc.Chrome, timeout: float = 5.0) -> bool:
         deadline = time.time() + timeout
+        recovery_attempted = False
         while time.time() < deadline:
             if self._should_stop():
                 raise RuntimeError("Stop requested.")
             try:
-                if driver.window_handles:
+                handles = driver.window_handles
+                if handles:
+                    try:
+                        driver.switch_to.window(handles[0])
+                    except Exception:
+                        pass
                     return True
             except Exception:
                 pass
+
+            if not recovery_attempted:
+                recovery_attempted = True
+                try:
+                    driver.switch_to.new_window("tab")
+                    continue
+                except Exception:
+                    pass
             time.sleep(0.1)
         return False
 
@@ -253,7 +265,7 @@ class DirectListingScraper:
                     preferred_major = int(mismatch.group(1))
                     self.log(f"Re-detected Chrome major {preferred_major} from error; retrying.")
                 if attempt < attempts:
-                    self.log(f"Browser launch failed: {exc}. Retrying...")
+                    self.log(f"Browser launch failed: {self._format_launch_error(exc)}. Retrying...")
                     try:
                         if driver:
                             driver.quit()
@@ -371,6 +383,56 @@ class DirectListingScraper:
         return m.group(1).strip() if m else None
 
     @staticmethod
+    def _extract_land_size_value(soup: BeautifulSoup) -> Optional[str]:
+        texts: list[str] = []
+        for da_id in ("area-amenity", "floor-area-amenity", "land-area-amenity"):
+            wrapper = soup.find("div", attrs={"da-id": da_id})
+            if not wrapper:
+                continue
+            for p in wrapper.find_all("p"):
+                text = p.get_text(strip=True)
+                if text:
+                    texts.append(text)
+
+        # Most reliable pattern: "1,706 sqft" or similar.
+        for text in texts:
+            match = re.search(r"([\d,]+)\s*(?:sq\s*ft|sqft)\b", text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+
+        # Some pages split number and unit into separate nodes.
+        for text in texts:
+            if re.fullmatch(r"[\d,]+", text):
+                return text
+
+        # Final fallback from full page text.
+        match = re.search(
+            r"([\d,]+)\s*(?:sq\s*ft|sqft)\b",
+            soup.get_text(separator=" "),
+            re.IGNORECASE,
+        )
+        return match.group(1).strip() if match else None
+
+    def _extract_tenure_value(self, soup: BeautifulSoup) -> Optional[str]:
+        meta = self._extract_meta_table(soup)
+        for key, value in meta.items():
+            if "tenure" in key.lower() and value:
+                return value
+
+        # If explicit tenure is missing, keep parity with URL search behavior by
+        # falling back to property type-like values.
+        for key, value in meta.items():
+            if key.lower() in {"property type", "type"} and value:
+                return value
+
+        elem = soup.select_one("[da-id='tenure-value'], .meta-table__item__wrapper__value")
+        if elem:
+            text = elem.get_text(strip=True)
+            if text:
+                return text
+        return None
+
+    @staticmethod
     def _extract_psf(soup: BeautifulSoup) -> Optional[str]:
         return extract_psf_from_soup(soup)
 
@@ -412,95 +474,90 @@ class DirectListingScraper:
         return None
 
     def _parse_listing_page(self, html: str, url: str) -> dict:
+        raise NotImplementedError("Use site-specific parsing methods.")
+
+    def _parse_propertyguru_listing_page(self, html: str, url: str) -> dict:
         soup = BeautifulSoup(html, "html.parser")
 
-        title = self._find_text(soup, [
-            'h1[data-automation-id="listing-title"]',
-            '[da-id="listing-title"]',
-            "h1.listing__title",
-            ".listing-name",
-            "h1",
-        ])
+        asking_price = None
+        price_elem = soup.find("h2", class_="amount")
+        if price_elem:
+            asking_price = price_elem.get_text(strip=True)
 
-        price = self._find_text(soup, [
-            "h2.amount",
-            '[da-id="price-amount"]',
-            ".amount",
-            ".listing-price",
-        ])
+        psf = extract_psf_from_soup(soup)
+        land_size = self._extract_land_size_value(soup)
 
-        address = self._find_text(soup, [
-            '[da-id="property-address"]',
-            ".property-address",
-            ".listing-address",
-            ".address",
-        ])
+        mrt_distance = None
+        mrt_elem = soup.find("p", class_="mrt-distance__text")
+        if mrt_elem:
+            mrt_distance = mrt_elem.get_text(strip=True)
 
-        meta = self._extract_meta_table(soup)
-        meta_lower = {k.lower(): v for k, v in meta.items()}
+        tenure = self._extract_tenure_value(soup)
 
-        property_type = (
-            meta_lower.get("property type")
-            or meta_lower.get("type")
-            or self._find_text(soup, [
-                ".listing__property-type",
-                '[da-id="property-type"]',
-            ])
-        )
+        agent_name = None
+        agent_elem = soup.find("div", class_="agent-name")
+        if agent_elem:
+            agent_name = agent_elem.get_text(strip=True)
 
-        tenure = (
-            meta_lower.get("tenure")
-            or self._find_text(soup, [
-                '[da-id="tenure-value"]',
-                ".meta-table__item__wrapper__value",
-            ])
-        )
-
-        size_sqft = self._extract_size_sqft(soup)
-        psf = self._extract_psf(soup)
-
-        description = self._find_text(soup, [
-            '[da-id="listing-description"]',
-            ".listing-description",
-            ".description",
-            ".listing__description",
-        ])
-        # Cap very long descriptions so the Excel cell stays manageable
-        if description and len(description) > 2000:
-            description = description[:1997] + "..."
-
-        agent_name = self._find_text(soup, [
-            ".agent-name",
-            ".agent-info__name",
-            ".listed-by__agent-name",
-            '[da-id="agent-name"]',
-        ])
-
-        agent_company = self._find_text(soup, [
-            ".agent-company-name",
-            ".agency-name",
-            ".agent-info__company",
-            '[da-id="agent-company"]',
-            ".agent-agency",
-        ])
-
-        phone = self._extract_phone(soup)
-        email = self._extract_email(soup)
+        district = None
+        address_elem = soup.select_one('[da-id="property-address"], .listing-address')
+        if address_elem:
+            district = address_elem.get_text(strip=True) or None
 
         return {
             "URL": url,
-            "Title": title,
-            "Price": price,
-            "Address": address,
-            "Property Type": property_type,
-            "Size (sqft)": size_sqft,
+            "District": district,
+            "Asking Price": asking_price,
             "PSF": psf,
-            "Description": description,
+            "Nearest MRT + Distance": mrt_distance,
+            "Land Size": land_size,
             "Tenure": tenure,
             "Agent Name": agent_name,
-            "Agent Company": agent_company,
-            "Phone": phone,
-            "Email": email,
+            "Agent Phone Number": self._extract_phone(soup),
+        }
+
+    def _parse_commercialguru_listing_page(self, html: str, url: str) -> dict:
+        soup = BeautifulSoup(html, "html.parser")
+
+        asking_price = None
+        for selector in ['[da-id="price-amount"]', "h2.amount"]:
+            elem = soup.select_one(selector)
+            if elem:
+                asking_price = elem.get_text(strip=True)
+                break
+
+        psf = extract_psf_from_soup(soup)
+        land_size = self._extract_land_size_value(soup)
+
+        nearest_mrt_distance = None
+        mrt_elem = soup.select_one('[da-id="mrt-distance-text"], p.mrt-distance__text')
+        if mrt_elem:
+            nearest_mrt_distance = mrt_elem.get_text(strip=True)
+
+        tenure = self._extract_tenure_value(soup)
+
+        agent_name = None
+        for selector in [".agent-name", ".listed-by__agent-name"]:
+            agent_elem = soup.select_one(selector)
+            if agent_elem:
+                agent_name = agent_elem.get_text(strip=True)
+                break
+
+        district = None
+        address_elem = soup.select_one('[da-id="property-address"]')
+        if address_elem and address_elem.get_text(strip=True):
+            district = address_elem.get_text(strip=True)
+
+        return {
+            "URL": url,
+            "District": district,
+            "Asking Price": asking_price,
+            "PSF": psf,
+            "Nearest MRT + Distance": nearest_mrt_distance,
+            "Land Size": land_size,
+            "Tenure": tenure,
+            "Agent Name": agent_name,
+            "Agent Phone Number": self._extract_phone(soup),
         }
 
     # ── Main run loop ─────────────────────────────────────────────────────────
@@ -520,27 +577,37 @@ class DirectListingScraper:
 
         processed = 0
         try:
-            first_url = self.urls[0] if self.urls else ""
-            host = urlparse(first_url).netloc.lower()
-            if "commercialguru" in host:
-                login_commercialguru(
-                    driver=driver,
-                    timeout_sec=self.config.timeout_sec,
-                    log_callback=self.log,
-                    stop_requested=self._should_stop,
-                )
-            else:
-                login_propertyguru(
-                    driver=driver,
-                    timeout_sec=self.config.timeout_sec,
-                    log_callback=self.log,
-                    stop_requested=self._should_stop,
-                )
+            logged_in = {"propertyguru": False, "commercialguru": False}
+
+            def _get_parser_for_url(listing_url: str):
+                host = urlparse(listing_url).netloc.lower()
+                if "commercialguru" in host:
+                    if not logged_in["commercialguru"]:
+                        login_commercialguru(
+                            driver=driver,
+                            timeout_sec=self.config.timeout_sec,
+                            log_callback=self.log,
+                            stop_requested=self._should_stop,
+                        )
+                        logged_in["commercialguru"] = True
+                    return self._parse_commercialguru_listing_page
+
+                if not logged_in["propertyguru"]:
+                    login_propertyguru(
+                        driver=driver,
+                        timeout_sec=self.config.timeout_sec,
+                        log_callback=self.log,
+                        stop_requested=self._should_stop,
+                    )
+                    logged_in["propertyguru"] = True
+                return self._parse_propertyguru_listing_page
 
             for i, url in enumerate(self.urls, start=1):
                 if self._should_stop():
                     self.log("Stop requested. Finishing current listing.")
                     break
+
+                parse_listing = _get_parser_for_url(url)
 
                 self.log(f"[{i}/{total}] Loading: {url}")
                 loaded = self._navigate_to_url(driver, url)
@@ -551,13 +618,13 @@ class DirectListingScraper:
                     row_data["URL"] = url
                     self.log(f"[{i}/{total}] FAILED to load: {url}")
                 else:
-                    row_data = self._parse_listing_page(driver.page_source, url)
-                    row_data["Phone"] = reveal_and_extract_agent_phone(
+                    row_data = parse_listing(driver.page_source, url)
+                    row_data["Agent Phone Number"] = reveal_and_extract_agent_phone(
                         driver=driver,
                         timeout_sec=self.config.timeout_sec,
                         stop_requested=self._should_stop,
-                    ) or row_data.get("Phone")
-                    label = row_data.get("Title") or row_data.get("Price") or url
+                    ) or row_data.get("Agent Phone Number")
+                    label = row_data.get("Asking Price") or url
                     self.log(f"[{i}/{total}] OK — {label}")
 
                 ws.append([row_data.get(field) for field in DETAIL_FIELDS])

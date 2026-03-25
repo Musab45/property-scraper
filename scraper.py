@@ -163,17 +163,40 @@ class PropertyGuruScraper:
                 raise RuntimeError("Stop requested. Aborting scrape.")
             time.sleep(0.1)
 
+    @staticmethod
+    def _format_launch_error(exc: Exception) -> str:
+        text = str(exc).strip()
+        if "Stacktrace:" in text:
+            text = text.split("Stacktrace:", 1)[0].strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return exc.__class__.__name__
+        return " | ".join(lines[:2])
+
     def _await_first_window(self, driver: uc.Chrome, timeout: float = 5.0) -> bool:
         deadline = time.time() + timeout
+        recovery_attempted = False
         while time.time() < deadline:
             if self._should_stop():
                 raise RuntimeError("Stop requested. Aborting scrape.")
             try:
                 handles = driver.window_handles
                 if handles:
+                    try:
+                        driver.switch_to.window(handles[0])
+                    except Exception:
+                        pass
                     return True
             except Exception:
                 pass
+
+            if not recovery_attempted:
+                recovery_attempted = True
+                try:
+                    driver.switch_to.new_window("tab")
+                    continue
+                except Exception:
+                    pass
             time.sleep(0.1)
         return False
 
@@ -280,7 +303,7 @@ class PropertyGuruScraper:
                         f"Detected local Chrome major {preferred_major} from launch error; retrying with that version."
                     )
                 if attempt < attempts:
-                    self.log(f"Browser launch failed: {exc}. Retrying...")
+                    self.log(f"Browser launch failed: {self._format_launch_error(exc)}. Retrying...")
                     try:
                         if driver is not None:
                             driver.quit()
@@ -399,7 +422,28 @@ class PropertyGuruScraper:
             container = soup.find("div", class_="search-results-container")
             page_links: list[str] = []
             if container:
-                for card in container.find_all("div", class_=re.compile(r"listing-card-v2")):
+                # Only use the primary results block; ignore recommendation widgets.
+                main_results_root = container.find(
+                    "div", attrs={"da-id": "search-result-root"}, recursive=False
+                )
+                if main_results_root is None:
+                    main_results_root = container.find("div", attrs={"da-id": "search-result-root"})
+
+                cards = []
+                if main_results_root is not None:
+                    cards = main_results_root.find_all(
+                        "div",
+                        attrs={"da-id": "parent-listing-card-v2-regular"},
+                        recursive=False,
+                    )
+                    if not cards:
+                        cards = main_results_root.find_all(
+                            "div", attrs={"da-id": "parent-listing-card-v2-regular"}
+                        )
+
+                for card in cards:
+                    if card.find_parent("div", attrs={"da-id": "recommendation-widget"}):
+                        continue
                     footer = card.find("a", class_="card-footer")
                     if footer and footer.get("href"):
                         page_links.append(footer["href"])

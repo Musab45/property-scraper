@@ -160,6 +160,7 @@ def reveal_and_extract_agent_phone(
     dropdown_selector = '[da-id="other-enquiry-dropdown"]'
     phone_btn_selector = '[da-id="enquiry-widget-phone-btn"]'
     last_dropdown_click = 0.0
+    post_dropdown_click_delay = 0.4
 
     while time.time() < deadline:
         if stop_requested():
@@ -168,7 +169,9 @@ def reveal_and_extract_agent_phone(
         # If the phone button is already available, click it directly.
         phone_btn = _find_phone_button(driver)
         if phone_btn is not None:
-            _click_with_fallback(driver, phone_btn)
+            # Let the dropdown finish animating/rendering before clicking.
+            if (time.time() - last_dropdown_click) >= post_dropdown_click_delay:
+                _click_with_fallback(driver, phone_btn)
         else:
             # Open "Other ways to enquire" only when the phone button is not visible.
             dropdown = _find_dropdown_trigger(driver)
