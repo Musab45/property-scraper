@@ -593,10 +593,8 @@ class PropertyGuruScraper:
             self.log(f"District from query: {query_districts or '(empty)'}")
 
             processed = 0
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.title = "Listings"
-            sheet.append(fieldnames)
+            rows: list[dict] = []
+            missing_phone_links: list[tuple[int, str]] = []
 
             for index, link in enumerate(links, start=1):
                 if self._should_stop() and index > 1:
@@ -621,7 +619,9 @@ class PropertyGuruScraper:
                     continue
 
                 row = self._scrape_listing(driver, link, query_districts)
-                sheet.append([row.get(field) for field in fieldnames])
+                rows.append(row)
+                if not str(row.get("Agent Phone Number") or "").strip():
+                    missing_phone_links.append((len(rows) - 1, link))
 
                 processed += 1
                 self.log(f"[{processed}/{total}] {link}")
@@ -636,6 +636,38 @@ class PropertyGuruScraper:
                         "elapsed": int(time.time() - self.start_time),
                     }
                 )
+
+            if missing_phone_links and not self._should_stop():
+                phone_retry_total = len(missing_phone_links)
+                phone_retry_recovered = 0
+                self.log(
+                    f"Retrying missing phone numbers once for {phone_retry_total} listing(s)..."
+                )
+                for row_index, link in missing_phone_links:
+                    if self._should_stop():
+                        break
+                    if not self._navigate_to_url(driver, link, "amount"):
+                        self.log(f"Phone retry failed to load: {link}")
+                        continue
+                    retried_phone = reveal_and_extract_agent_phone(
+                        driver=driver,
+                        timeout_sec=self.config.timeout_sec,
+                        stop_requested=self._should_stop,
+                    )
+                    if retried_phone:
+                        rows[row_index]["Agent Phone Number"] = retried_phone
+                        phone_retry_recovered += 1
+
+                self.log(
+                    f"Phone retry recovered {phone_retry_recovered} out of {phone_retry_total} missing number(s)."
+                )
+
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Listings"
+            sheet.append(fieldnames)
+            for row in rows:
+                sheet.append([row.get(field) for field in fieldnames])
 
             workbook.save(self.config.output_csv)
                     

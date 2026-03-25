@@ -580,13 +580,9 @@ class DirectListingScraper:
 
         driver = self._create_driver()
 
-        # Combined Excel — one row per listing
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Listings"
-        ws.append(DETAIL_FIELDS)
-
         processed = 0
+        rows: list[dict] = []
+        missing_phone_urls: list[tuple[int, str]] = []
         try:
             logged_in = {"propertyguru": False, "commercialguru": False}
 
@@ -638,7 +634,9 @@ class DirectListingScraper:
                     label = row_data.get("Asking Price") or url
                     self.log(f"[{i}/{total}] OK — {label}")
 
-                ws.append([row_data.get(field) for field in DETAIL_FIELDS])
+                rows.append(row_data)
+                if not str(row_data.get("Agent Phone Number") or "").strip():
+                    missing_phone_urls.append((len(rows) - 1, url))
                 processed += 1
 
                 self.progress({
@@ -650,6 +648,48 @@ class DirectListingScraper:
                     "error_count": self.error_count,
                     "elapsed": int(time.time() - self.start_time),
                 })
+
+            if missing_phone_urls and not self._should_stop():
+                phone_retry_total = len(missing_phone_urls)
+                phone_retry_recovered = 0
+                self.log(
+                    f"Retrying missing phone numbers once for {phone_retry_total} listing(s)..."
+                )
+                for row_index, url in missing_phone_urls:
+                    if self._should_stop():
+                        break
+                    parse_listing = _get_parser_for_url(url)
+                    loaded = self._navigate_to_url(driver, url)
+                    if not loaded:
+                        self.log(f"Phone retry failed to load: {url}")
+                        continue
+
+                    retried_phone = reveal_and_extract_agent_phone(
+                        driver=driver,
+                        timeout_sec=self.config.timeout_sec,
+                        stop_requested=self._should_stop,
+                    )
+                    if retried_phone:
+                        rows[row_index]["Agent Phone Number"] = retried_phone
+                        phone_retry_recovered += 1
+                    else:
+                        # Keep other fields current if a detail page changed between passes.
+                        retry_row = parse_listing(driver.page_source, url)
+                        had_phone_after_parse = bool(str(retry_row.get("Agent Phone Number") or "").strip())
+                        rows[row_index].update(retry_row)
+                        if had_phone_after_parse:
+                            phone_retry_recovered += 1
+
+                self.log(
+                    f"Phone retry recovered {phone_retry_recovered} out of {phone_retry_total} missing number(s)."
+                )
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Listings"
+            ws.append(DETAIL_FIELDS)
+            for row_data in rows:
+                ws.append([row_data.get(field) for field in DETAIL_FIELDS])
 
             wb.save(self.config.output_csv)
             self.log(f"Saved Excel: {self.config.output_csv}")
