@@ -20,6 +20,9 @@ from scraper import (
     ScraperConfig,
     STANDARD_CSV_FIELDS,
     UC_DRIVER_CREATE_LOCK,
+    extract_baths_from_soup,
+    extract_beds_from_soup,
+    extract_land_size_from_soup,
     detect_installed_chrome_major,
     extract_psf_from_soup,
 )
@@ -389,16 +392,9 @@ class CommercialGuruScraper:
                 break
 
         psf = extract_psf_from_soup(soup)
-
-        land_size = None
-        area_wrapper = soup.find("div", attrs={"da-id": "area-amenity"})
-        if area_wrapper:
-            area_parts = [p.get_text(strip=True) for p in area_wrapper.find_all("p")]
-            if any("sqft" in x.lower() for x in area_parts):
-                for x in area_parts:
-                    if "sqft" not in x.lower():
-                        land_size = x
-                        break
+        beds = extract_beds_from_soup(soup)
+        baths = extract_baths_from_soup(soup)
+        land_size = extract_land_size_from_soup(soup)
 
         nearest_mrt_distance = None
         mrt_elem = soup.select_one('[da-id="mrt-distance-text"], p.mrt-distance__text')
@@ -426,6 +422,8 @@ class CommercialGuruScraper:
             "URL": url,
             "District": district,
             "Asking Price": asking_price,
+            "Beds": beds,
+            "Baths": baths,
             "PSF": psf,
             "Nearest MRT + Distance": nearest_mrt_distance,
             "Land Size": land_size,

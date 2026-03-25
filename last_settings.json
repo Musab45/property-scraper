@@ -1,6 +1,6 @@
 {
   "scrape_mode": "URL Search",
-  "search_url": "https://www.commercialguru.com.sg/property-for-sale?listingType=sale&page=1&centerLatitude=1.341204&centerLongitude=103.775819&distanceFromCentre=1&isCommercial=false&tenureCode=F&tenureCode=L999&tenureCode=L9999&mrtStations=DT5&poiId=2027&_freetextDisplay=DT5+Beauty+World+MRT+Station&propertyTypeGroup=L&propertyTypeCode=CORN&propertyTypeCode=SEMI&propertyTypeCode=TERRA&maxPrice=6500000",
+  "search_url": "https://www.propertyguru.com.sg/property-for-sale?listingType=sale&page=1&districtCode=D15&districtCode=D16&isCommercial=false&tenureCode=F&tenureCode=L999&tenureCode=L9999&_freetextDisplay=D15+East+Coast+%2F+Marine+Parade%2C+D16+Bedok+%2F+Upper+East+Coast&propertyTypeGroup=L&propertyTypeCode=DETAC&propertyTypeCode=SEMI&minPrice=4000000&maxPrice=5500000&bedrooms=5",
   "import_file_path": "/Users/musab/Documents/VSCode/Python/temp/test.xlsx",
   "url_column": "URL",
   "import_output_folder": "/Users/musab/Documents/VSCode/Python/temp",
@@ -20,7 +20,7 @@
   "tenure": "",
   "furnishing": "",
   "extra_params": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
-  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/comm_commercialguru_20260325_220043.xlsx",
+  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/long_propertyguru_20260325_223336.xlsx",
   "timeout_sec": "25",
   "retries": "2",
   "max_pages": "1",

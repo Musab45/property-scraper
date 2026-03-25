@@ -22,6 +22,9 @@ from scraper import (
     ScraperConfig,
     STANDARD_CSV_FIELDS,
     UC_DRIVER_CREATE_LOCK,
+    extract_baths_from_soup,
+    extract_beds_from_soup,
+    extract_land_size_from_soup,
     detect_installed_chrome_major,
     extract_psf_from_soup,
 )
@@ -485,7 +488,9 @@ class DirectListingScraper:
             asking_price = price_elem.get_text(strip=True)
 
         psf = extract_psf_from_soup(soup)
-        land_size = self._extract_land_size_value(soup)
+        beds = extract_beds_from_soup(soup)
+        baths = extract_baths_from_soup(soup)
+        land_size = extract_land_size_from_soup(soup)
 
         mrt_distance = None
         mrt_elem = soup.find("p", class_="mrt-distance__text")
@@ -508,6 +513,8 @@ class DirectListingScraper:
             "URL": url,
             "District": district,
             "Asking Price": asking_price,
+            "Beds": beds,
+            "Baths": baths,
             "PSF": psf,
             "Nearest MRT + Distance": mrt_distance,
             "Land Size": land_size,
@@ -527,7 +534,9 @@ class DirectListingScraper:
                 break
 
         psf = extract_psf_from_soup(soup)
-        land_size = self._extract_land_size_value(soup)
+        beds = extract_beds_from_soup(soup)
+        baths = extract_baths_from_soup(soup)
+        land_size = extract_land_size_from_soup(soup)
 
         nearest_mrt_distance = None
         mrt_elem = soup.select_one('[da-id="mrt-distance-text"], p.mrt-distance__text')
@@ -552,6 +561,8 @@ class DirectListingScraper:
             "URL": url,
             "District": district,
             "Asking Price": asking_price,
+            "Beds": beds,
+            "Baths": baths,
             "PSF": psf,
             "Nearest MRT + Distance": nearest_mrt_distance,
             "Land Size": land_size,

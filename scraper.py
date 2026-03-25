@@ -25,6 +25,8 @@ STANDARD_CSV_FIELDS = [
     "URL",
     "District",
     "Asking Price",
+    "Beds",
+    "Baths",
     "PSF",
     "Nearest MRT + Distance",
     "Land Size",
@@ -55,6 +57,59 @@ def extract_psf_from_soup(soup: BeautifulSoup) -> Optional[str]:
         return match.group(0).strip()
 
     return None
+
+
+def _extract_amenity_count_by_da_ids(soup: BeautifulSoup, da_ids: tuple[str, ...]) -> Optional[str]:
+    for da_id in da_ids:
+        wrapper = soup.find("div", attrs={"da-id": da_id})
+        if not wrapper:
+            continue
+
+        texts = [p.get_text(strip=True) for p in wrapper.find_all("p") if p.get_text(strip=True)]
+        if not texts:
+            texts = [t.strip() for t in wrapper.stripped_strings if t.strip()]
+
+        for text in texts:
+            match = re.search(r"\d[\d,]*", text)
+            if match:
+                return match.group(0)
+    return None
+
+
+def extract_beds_from_soup(soup: BeautifulSoup) -> Optional[str]:
+    return _extract_amenity_count_by_da_ids(soup, ("bedroom-amenity", "bed-amenity"))
+
+
+def extract_baths_from_soup(soup: BeautifulSoup) -> Optional[str]:
+    return _extract_amenity_count_by_da_ids(soup, ("bathroom-amenity", "bath-amenity"))
+
+
+def extract_land_size_from_soup(soup: BeautifulSoup) -> Optional[str]:
+    texts: list[str] = []
+    for da_id in ("area-amenity", "floor-area-amenity", "land-area-amenity"):
+        wrapper = soup.find("div", attrs={"da-id": da_id})
+        if not wrapper:
+            continue
+        for p in wrapper.find_all("p"):
+            text = p.get_text(strip=True)
+            if text:
+                texts.append(text)
+
+    for text in texts:
+        match = re.search(r"([\d,]+)\s*(?:sq\s*ft|sqft)\b", text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+    for text in texts:
+        if re.fullmatch(r"[\d,]+", text):
+            return text
+
+    match = re.search(
+        r"([\d,]+)\s*(?:sq\s*ft|sqft)\b",
+        soup.get_text(separator=" "),
+        re.IGNORECASE,
+    )
+    return match.group(1).strip() if match else None
 
 
 def detect_installed_chrome_major() -> Optional[int]:
@@ -479,19 +534,9 @@ class PropertyGuruScraper:
             asking_price = price_elem.get_text(strip=True)
 
         psf = extract_psf_from_soup(soup)
-
-        land_size = None
-        area_wrapper = soup.find("div", attrs={"da-id": "area-amenity"})
-        if area_wrapper:
-            area_parts = [
-                p.get_text(strip=True) for p in area_wrapper.find_all("p", class_="amenity-text")
-            ]
-            has_sqft = any("sqft" in text.lower() for text in area_parts)
-            if has_sqft:
-                for text in area_parts:
-                    if "sqft" not in text.lower():
-                        land_size = text
-                        break
+        beds = extract_beds_from_soup(soup)
+        baths = extract_baths_from_soup(soup)
+        land_size = extract_land_size_from_soup(soup)
 
         mrt_distance = None
         mrt_elem = soup.find("p", class_="mrt-distance__text")
@@ -512,6 +557,8 @@ class PropertyGuruScraper:
             "URL": url,
             "District": query_districts,
             "Asking Price": asking_price,
+            "Beds": beds,
+            "Baths": baths,
             "PSF": psf,
             "Nearest MRT + Distance": mrt_distance,
             "Land Size": land_size,
