@@ -1,7 +1,7 @@
 {
   "scrape_mode": "URL Search",
-  "search_url": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-sale?listingType=sale&page=1&districtCode=D22&isCommercial=true&_freetextDisplay=D22%20Boon%20Lay%20%2F%20Jurong%20%2F%20Tuas&propertyTypeGroup=I&propertyTypeCode=FAC&maxPrice=3000000&minSize=10000",
-  "import_file_path": "C:/Users/DELL/Downloads/industrial_links.xlsx",
+  "search_url": "https://www.propertyguru.com.sg/property-for-sale?listingType=sale&page=1&centerLatitude=1.341204&centerLongitude=103.775819&distanceFromCentre=1&isCommercial=false&tenureCode=F&tenureCode=L999&tenureCode=L9999&mrtStations=DT5&poiId=2027&_freetextDisplay=DT5+Beauty+World+MRT+Station&propertyTypeGroup=L&propertyTypeCode=CORN&propertyTypeCode=SEMI&propertyTypeCode=TERRA&maxPrice=6500000",
+  "import_file_path": "C:/Users/DELL/Downloads/testing URL Blank Template.xlsx",
   "url_column": "URL",
   "import_output_folder": "C:\\Users\\DELL\\Documents\\property scrapper\\property-scraper",
   "freetext_display": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
@@ -20,7 +20,7 @@
   "tenure": "",
   "furnishing": "",
   "extra_params": "https://www.commercialguru.com.sg/find-commercial-properties/property-for-rent?listingType=rent&page=1&districtCode=D01&districtCode=D02&isCommercial=true&_freetextDisplay=D01+Boat+Quay+%2F+Raffles+Place+%2F+Marina%2C+D02+Chinatown+%2F+Tanjong+Pagar&propertyTypeGroup=R&propertyTypeCode=FOOD",
-  "output_csv": "/Users/musab/Documents/VSCode/Python/temp/missing_commercialguru_20260324_190258.xlsx",
+  "output_csv": "C:/Users/DELL/Downloads\\missing_propertyguru_20260325_121819.xlsx",
   "timeout_sec": "25",
   "retries": "2",
   "max_pages": "1",
